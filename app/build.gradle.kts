@@ -16,26 +16,33 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-//        ndk {
-//            abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
-//        }
-        // Configuración CMake
+        // Configuración CMake para GStreamer
         externalNativeBuild {
             cmake {
-                cppFlags += listOf("-frtti", "-fexceptions")
-                abiFilters += listOf("x86", "x86_64", "arm64-v8a", "armeabi-v7a")
+                val gstRoot = if (project.hasProperty("gstAndroidRoot")) {
+                    project.property("gstAndroidRoot").toString()
+                } else {
+                    System.getenv("GSTREAMER_ROOT_ANDROID")
+                }
+
+                if (gstRoot == null) {
+                    throw GradleException("GSTREAMER_ROOT_ANDROID must be set, or 'gstAndroidRoot' must be defined in gradle.properties")
+                }
+
+                arguments(
+                    "-DANDROID_STL=c++_shared",
+                    "-DGSTREAMER_ROOT_ANDROID=$gstRoot",
+                    "-GNinja"
+                )
+
+                targets("gstreamer-native")
+
+                // Arquitecturas soportadas por GStreamer
+                abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
             }
         }
     }
-//
-//    externalNativeBuild {
-//        cmake {
-//            path = file("src/main/cpp/CMakeLists.txt")
-//            version = "3.22.1"
-//        }
-//    }
-
+    ndkVersion = "25.2.9519653"
     // Configuración externa de CMake
     externalNativeBuild {
         cmake {
@@ -45,8 +52,8 @@ android {
     }
 
     packaging {
-        jniLibs {
-            useLegacyPackaging = true
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
     buildTypes {
@@ -68,8 +75,15 @@ android {
     buildFeatures {
         compose = true
     }
+
     ndkVersion = "25.2.9519653"
 }
+
+//afterEvaluate {
+//    tasks.findByName("compileDebugJavaWithJavac")?.dependsOn("externalNativeBuildDebug")
+//    tasks.findByName("compileReleaseJavaWithJavac")?.dependsOn("externalNativeBuildRelease")
+//}
+
 
 dependencies {
 
