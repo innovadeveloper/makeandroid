@@ -1,6 +1,7 @@
-# Versión mínima de CMake
+# =====================================================================
+# CMakeLists.txt - Versión corregida usando el patrón oficial de GStreamer
+# =====================================================================
 cmake_minimum_required(VERSION 3.22.1)
-
 project("gstream-tutorial" LANGUAGES C CXX)
 
 # Verificar que GSTREAMER_ROOT_ANDROID esté definido
@@ -23,50 +24,36 @@ else()
     message(FATAL_ERROR "Target arch ABI not supported: ${ANDROID_ABI}")
 endif()
 
-# Buscar librería log
+# Agregar el módulo CMake de GStreamer
+list(APPEND CMAKE_MODULE_PATH "${GSTREAMER_ROOT}/share/cmake")
+
+# Configurar la ruta de ndk-build de GStreamer
+set(GSTREAMER_NDK_BUILD_PATH "${GSTREAMER_ROOT}/share/gst-android/ndk-build/")
+
+# Incluir el sistema de plugins de GStreamer
+include("${GSTREAMER_NDK_BUILD_PATH}/plugins.cmake")
+
+# Definir qué plugins necesitamos para RTSP
+set(GSTREAMER_PLUGINS
+        ${GSTREAMER_PLUGINS_CORE}
+        ${GSTREAMER_PLUGINS_PLAYBACK}
+        ${GSTREAMER_PLUGINS_CODECS}
+        ${GSTREAMER_PLUGINS_NET}
+        ${GSTREAMER_PLUGINS_SYS}
+)
+
+# Dependencias extra de GStreamer
+set(GStreamer_EXTRA_DEPS gstreamer-video-1.0 gstreamer-rtsp-1.0)
+
+# Módulos adicionales
+set(G_IO_MODULES openssl)
+
+# Buscar librerías del sistema Android
+find_library(ANDROID_LIB android REQUIRED)
 find_library(LOG_LIB log REQUIRED)
 
-# Librerías principales de GStreamer (solo las esenciales)
-set(GSTREAMER_CORE_LIBS
-        "${GSTREAMER_ROOT}/lib/libgstreamer-1.0.a"
-        "${GSTREAMER_ROOT}/lib/libgstbase-1.0.a"
-)
-
-# Librerías de GLib (dependencias principales)
-set(GLIB_LIBS
-        "${GSTREAMER_ROOT}/lib/libglib-2.0.a"
-        "${GSTREAMER_ROOT}/lib/libgobject-2.0.a"
-        "${GSTREAMER_ROOT}/lib/libgmodule-2.0.a"
-        "${GSTREAMER_ROOT}/lib/libgthread-2.0.a"
-        "${GSTREAMER_ROOT}/lib/libgio-2.0.a"
-)
-
-# Librerías de soporte (internationalization, etc)
-set(SUPPORT_LIBS
-        "${GSTREAMER_ROOT}/lib/libintl.a"
-        "${GSTREAMER_ROOT}/lib/libffi.a"
-        "${GSTREAMER_ROOT}/lib/libiconv.a"
-        "${GSTREAMER_ROOT}/lib/libcharset.a"
-        "${GSTREAMER_ROOT}/lib/libpcre2-8.a"
-)
-
-# Directorios de include
-set(GSTREAMER_INCLUDE_DIRS
-        "${GSTREAMER_ROOT}/include/gstreamer-1.0"
-        "${GSTREAMER_ROOT}/include/glib-2.0"
-        "${GSTREAMER_ROOT}/lib/glib-2.0/include"
-)
-
-# Verificar qué librerías existen antes de usarlas
-foreach(lib ${GSTREAMER_CORE_LIBS} ${GLIB_LIBS} ${SUPPORT_LIBS})
-    if(NOT EXISTS ${lib})
-        message(WARNING "Librería no encontrada: ${lib}")
-    endif()
-endforeach()
-
-# Mensaje de debug
-message(STATUS "GSTREAMER_ROOT: ${GSTREAMER_ROOT}")
-message(STATUS "Usando solo librerías esenciales para evitar errores de enlazado")
+# Buscar el paquete GStreamer Mobile
+find_package(GStreamerMobile COMPONENTS ${GSTREAMER_PLUGINS} fonts ca_certificates REQUIRED)
 
 # Crear la librería compartida
 add_library(gstreamer-native SHARED
@@ -74,20 +61,11 @@ add_library(gstreamer-native SHARED
         dummy.cpp
 )
 
-# Configurar includes
-target_include_directories(gstreamer-native PRIVATE
-        ${GSTREAMER_INCLUDE_DIRS}
-)
-
-# Enlazar librerías en orden correcto (dependencias primero)
+# Enlazar con GStreamer Mobile y librerías del sistema
 target_link_libraries(gstreamer-native
-        # Librerías de soporte primero
-        ${SUPPORT_LIBS}
-        # Librerías de GLib
-        ${GLIB_LIBS}
-        # Librerías de GStreamer
-        ${GSTREAMER_CORE_LIBS}
-        # Librería del sistema
+        PUBLIC
+        GStreamer::mobile
+        ${ANDROID_LIB}
         ${LOG_LIB}
 )
 
