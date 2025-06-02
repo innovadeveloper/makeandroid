@@ -27,6 +27,10 @@ fun RTSPPlayerScreen() {
     val frameInfo by player.frameInfo.collectAsState()
     val errorMessage by player.errorMessage.collectAsState()
 
+    // NUEVAS líneas para forwarding
+    val forwardingStatus by player.forwardingStatus.collectAsState()
+    val forwardingInfo by player.forwardingInfo.collectAsState()
+
     // Estados locales de la UI
     var rtspUrl by remember { mutableStateOf("rtsp://192.168.0.105:8554/mystream") }
     var isAutoRetryEnabled by remember { mutableStateOf(false) }
@@ -101,6 +105,13 @@ fun RTSPPlayerScreen() {
             frameInfo = frameInfo,
             errorMessage = errorMessage,
             onClearError = { player.clearError() }
+        )
+
+        ForwardingControlCard(
+            player = player,
+            forwardingStatus = forwardingStatus,
+            forwardingInfo = forwardingInfo,
+            connectionStatus = connectionStatus
         )
 
         // Configuración de URL
