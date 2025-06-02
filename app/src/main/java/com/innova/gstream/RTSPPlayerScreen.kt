@@ -29,7 +29,7 @@ fun RTSPPlayerScreen() {
     val errorMessage by player.errorMessage.collectAsState()
 
     // Estados locales de la UI
-    var rtspUrl by remember { mutableStateOf("rtsp://192.168.0.104:8554/mystream") }
+    var rtspUrl by remember { mutableStateOf("rtsp://192.168.0.105:8554/mystream") }
     var isAutoRetryEnabled by remember { mutableStateOf(false) }
 
     // Limpiar recursos al salir
@@ -100,7 +100,7 @@ fun RTSPPlayerScreen() {
             value = rtspUrl,
             onValueChange = { rtspUrl = it },
             label = { Text("URL RTSP") },
-            placeholder = { Text("rtsp://192.168.0.104:8554/mystream") },
+            placeholder = { Text("rtsp://192.168.0.105:8554/mystream") },
             modifier = Modifier.fillMaxWidth(),
             enabled = !isPlaying,
             leadingIcon = {
@@ -316,7 +316,7 @@ private fun TestUrlsCard(
             )
 
             val testUrls = listOf(
-                "rtsp://192.168.0.104:8554/mystream" to "Tu cámara local",
+                "rtsp://192.168.0.105:8554/mystream" to "Tu cámara local",
                 "rtsp://wowzaec2demo.streamlock.net/vod/mp4:BigBuckBunny_115k.mov" to "Big Buck Bunny (Demo)",
                 "rtsp://demo.rtsplive.com/live/stream" to "Demo Live Stream"
             )
