@@ -1,10 +1,10 @@
 /*
-* gstreamer-native.c - Versión simplificada que funciona con plugins disponibles
+* gstreamer-native.c - Versión corregida con manejo seguro de threads JNI
 *
-* CAMBIOS PRINCIPALES:
-* - Usar solo plugins que vienen con GStreamer Mobile
-* - Pipeline más simple usando elementos disponibles
-* - Mejor manejo de errores y fallbacks
+* CORRECCIÓN PRINCIPAL:
+* - Verificar si estamos en el thread principal antes de hacer callbacks a Java
+* - Usar mecanismo seguro para notificar cambios de estado
+* - Evitar DetachCurrentThread desde thread principal
 */
 
 #include <jni.h>
@@ -51,6 +51,10 @@ typedef struct _RTSPPlayerData {
     jmethodID on_frame_available_id;
     jmethodID on_forwarding_status_id;
 
+    // Thread seguro para callbacks
+    pthread_t main_java_thread;
+    gboolean is_main_thread_attached;
+
     // Configuración
     gchar *uri;
     gchar *janus_ip;
@@ -66,33 +70,76 @@ typedef struct _RTSPPlayerData {
 static RTSPPlayerData *player_data = NULL;
 
 //====================================================================
-// FUNCIONES DE UTILIDAD JNI
+// FUNCIONES DE UTILIDAD JNI THREAD-SAFE
 //====================================================================
-static JNIEnv* attach_current_thread(void) {
+static gboolean is_main_java_thread(void) {
+    if (!player_data) return FALSE;
+    return (pthread_self() == player_data->main_java_thread);
+}
+
+static JNIEnv* attach_current_thread_safe(void) {
+    if (!player_data || !player_data->jvm) {
+        LOGE("No player data or JVM available");
+        return NULL;
+    }
+
     JNIEnv *env;
     JavaVMAttachArgs args;
     args.version = JNI_VERSION_1_4;
     args.name = NULL;
     args.group = NULL;
 
-    if ((*player_data->jvm)->AttachCurrentThread(player_data->jvm, &env, &args) < 0) {
-        LOGE("Failed to attach current thread");
+    jint result = (*player_data->jvm)->AttachCurrentThread(player_data->jvm, &env, &args);
+    if (result < 0) {
+        LOGE("Failed to attach current thread: %d", result);
         return NULL;
     }
+
     return env;
 }
 
-static void detach_current_thread(void) {
+static void detach_current_thread_safe(void) {
+    if (!player_data || !player_data->jvm) return;
+
+    // NUNCA hacer detach del thread principal de Java
+    if (is_main_java_thread()) {
+        LOGD("Skipping detach for main Java thread");
+        return;
+    }
+
     (*player_data->jvm)->DetachCurrentThread(player_data->jvm);
 }
 
-static void notify_forwarding_status(gint status) {
-    JNIEnv *env = attach_current_thread();
-    if (env && player_data->on_forwarding_status_id) {
-        (*env)->CallVoidMethod(env, player_data->app_ref,
-                               player_data->on_forwarding_status_id, status);
+static void notify_forwarding_status_safe(gint status) {
+    if (!player_data || !player_data->on_forwarding_status_id) {
+        LOGD("No callback available for forwarding status");
+        return;
     }
-    detach_current_thread();
+
+    JNIEnv *env = attach_current_thread_safe();
+    if (!env) {
+        LOGE("Could not attach thread for forwarding status callback");
+        return;
+    }
+
+    // Verificar que el objeto Java sigue válido
+    if ((*env)->IsSameObject(env, player_data->app_ref, NULL)) {
+        LOGE("Java object reference is null");
+        detach_current_thread_safe();
+        return;
+    }
+
+    LOGD("Notifying forwarding status: %d", status);
+    (*env)->CallVoidMethod(env, player_data->app_ref,
+                           player_data->on_forwarding_status_id, status);
+
+    // Verificar si hubo excepciones
+    if ((*env)->ExceptionCheck(env)) {
+        LOGE("Exception occurred during forwarding status callback");
+        (*env)->ExceptionClear(env);
+    }
+
+    detach_current_thread_safe();
 }
 
 //====================================================================
@@ -135,13 +182,17 @@ static void main_state_changed_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *
 
         if (new_state == GST_STATE_PLAYING) {
             // Notificar a Java que están llegando frames
-            JNIEnv *env = attach_current_thread();
+            JNIEnv *env = attach_current_thread_safe();
             if (env && data->on_frame_available_id) {
                 jbyteArray dummy_data = (*env)->NewByteArray(env, 1);
                 (*env)->CallVoidMethod(env, data->app_ref, data->on_frame_available_id, 1, dummy_data);
                 (*env)->DeleteLocalRef(env, dummy_data);
+
+                if ((*env)->ExceptionCheck(env)) {
+                    (*env)->ExceptionClear(env);
+                }
             }
-            detach_current_thread();
+            detach_current_thread_safe();
         }
     }
 }
@@ -160,7 +211,7 @@ static void forwarding_error_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *da
     g_free(debug_info);
 
     // Notificar error de forwarding (status = 3 = ERROR)
-    notify_forwarding_status(3);
+    notify_forwarding_status_safe(3);
 }
 
 static void forwarding_eos_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *data) {
@@ -175,11 +226,11 @@ static void forwarding_state_changed_cb(GstBus *bus, GstMessage *msg, RTSPPlayer
         data->forwarding_state = new_state;
         LOGI("Forwarding pipeline state changed to %s", gst_element_state_get_name(new_state));
 
-        // Notificar estados a Java
+        // Notificar estados a Java de manera segura
         if (new_state == GST_STATE_PLAYING) {
-            notify_forwarding_status(2); // ACTIVE = 2
+            notify_forwarding_status_safe(2); // ACTIVE = 2
         } else if (new_state == GST_STATE_PAUSED) {
-            notify_forwarding_status(1); // READY = 1
+            notify_forwarding_status_safe(1); // READY = 1
         }
     }
 }
@@ -287,7 +338,7 @@ static void* forwarding_pipeline_function(void *userdata) {
              error ? error->message : "Unknown error");
         if (error) g_error_free(error);
         g_free(pipeline_description);
-        notify_forwarding_status(3); // ERROR
+        notify_forwarding_status_safe(3); // ERROR
         return NULL;
     }
     g_free(pipeline_description);
@@ -325,7 +376,7 @@ static void* forwarding_pipeline_function(void *userdata) {
     }
 
     data->forwarding_active = FALSE;
-    notify_forwarding_status(0); // DISABLED
+    notify_forwarding_status_safe(0); // DISABLED
 
     return NULL;
 }
@@ -345,6 +396,10 @@ Java_com_innova_gstream_RTSPPlayer_nativeInit(JNIEnv *env, jobject thiz) {
     if (!player_data) {
         player_data = g_malloc0(sizeof(RTSPPlayerData));
 
+        // Guardar thread principal de Java
+        player_data->main_java_thread = pthread_self();
+        player_data->is_main_thread_attached = TRUE;
+
         // Obtener referencia a la JVM
         if ((*env)->GetJavaVM(env, &player_data->jvm) != JNI_OK) {
             LOGE("Error obteniendo referencia a JavaVM");
@@ -355,6 +410,12 @@ Java_com_innova_gstream_RTSPPlayer_nativeInit(JNIEnv *env, jobject thiz) {
 
         // Crear referencia global al objeto Java
         player_data->app_ref = (*env)->NewGlobalRef(env, thiz);
+        if (!player_data->app_ref) {
+            LOGE("Error creando referencia global");
+            g_free(player_data);
+            player_data = NULL;
+            return JNI_FALSE;
+        }
 
         // Obtener métodos callback
         jclass clazz = (*env)->GetObjectClass(env, thiz);
@@ -505,8 +566,8 @@ Java_com_innova_gstream_RTSPPlayer_nativeCreateForwardingPipeline(
 
     (*env)->ReleaseStringUTFChars(env, janus_ip, ip);
 
-    // Notificar que está listo para forwarding
-    notify_forwarding_status(1); // READY = 1
+    // Notificar que está listo para forwarding de manera segura
+    notify_forwarding_status_safe(1); // READY = 1
 
     return JNI_TRUE;
 }
