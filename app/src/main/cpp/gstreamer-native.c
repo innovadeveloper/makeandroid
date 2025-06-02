@@ -1,11 +1,13 @@
 /*
- * Implementación simplificada de RTSP Player usando playbin
- * Basado en el tutorial oficial de GStreamer para Android
+ * gstreamer-native.c - Versión con soporte para superficie de video
  */
 
 #include <jni.h>
 #include <android/log.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 #include <gst/gst.h>
+#include <gst/video/videooverlay.h>
 #include <pthread.h>
 #include <string.h>
 
@@ -30,6 +32,8 @@ typedef struct _RTSPPlayerData {
     jmethodID on_frame_available_id;
     gchar *uri;
     pthread_t gst_app_thread;
+    ANativeWindow *native_window;
+    gboolean has_window;
 } RTSPPlayerData;
 
 static RTSPPlayerData *player_data = NULL;
@@ -89,6 +93,13 @@ static void state_changed_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *data)
     if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data->pipeline)) {
         data->state = new_state;
         LOGI("State changed to %s", gst_element_state_get_name(new_state));
+
+        // Establecer la ventana cuando el pipeline esté listo
+        if (new_state == GST_STATE_PAUSED && data->native_window) {
+            gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(data->pipeline),
+                                                (guintptr)data->native_window);
+            LOGI("Window handle set to pipeline");
+        }
 
         if (new_state == GST_STATE_PLAYING) {
             // Notificar a Java que están llegando frames
@@ -295,6 +306,40 @@ Java_com_innova_gstream_RTSPPlayer_nativeStop(JNIEnv *env, jobject thiz) {
 }
 
 JNIEXPORT void JNICALL
+Java_com_innova_gstream_RTSPPlayer_nativeSetSurface(JNIEnv *env, jobject thiz, jobject surface) {
+    if (!player_data) {
+        LOGE("Player data no disponible");
+        return;
+    }
+
+    // Liberar ventana anterior si existe
+    if (player_data->native_window) {
+        ANativeWindow_release(player_data->native_window);
+        player_data->native_window = NULL;
+        player_data->has_window = FALSE;
+        LOGI("Ventana anterior liberada");
+    }
+
+    // Configurar nueva ventana si se proporciona
+    if (surface) {
+        player_data->native_window = ANativeWindow_fromSurface(env, surface);
+        if (player_data->native_window) {
+            player_data->has_window = TRUE;
+            LOGI("Nueva ventana configurada: %p", player_data->native_window);
+
+            // Si el pipeline está en PAUSED o superior, aplicar la ventana inmediatamente
+            if (player_data->pipeline && player_data->state >= GST_STATE_PAUSED) {
+                gst_video_overlay_set_window_handle(GST_VIDEO_OVERLAY(player_data->pipeline),
+                                                    (guintptr)player_data->native_window);
+                LOGI("Ventana aplicada inmediatamente al pipeline");
+            }
+        } else {
+            LOGI("Superficie eliminada");
+        }
+    }
+}
+
+JNIEXPORT void JNICALL
 Java_com_innova_gstream_RTSPPlayer_nativeCleanup(JNIEnv *env, jobject thiz) {
     if (!player_data) {
         return;
@@ -309,6 +354,12 @@ Java_com_innova_gstream_RTSPPlayer_nativeCleanup(JNIEnv *env, jobject thiz) {
 
     // Esperar a que termine el thread
     pthread_join(player_data->gst_app_thread, NULL);
+
+    // Liberar ventana nativa
+    if (player_data->native_window) {
+        ANativeWindow_release(player_data->native_window);
+        player_data->native_window = NULL;
+    }
 
     // Limpiar URI
     if (player_data->uri) {

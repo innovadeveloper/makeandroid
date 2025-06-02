@@ -1,12 +1,8 @@
+// RTSPPlayer.kt
 package com.innova.gstream
 
 import android.util.Log
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.Color
+import android.view.Surface
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,11 +12,11 @@ class RTSPPlayer {
         private const val TAG = "RTSPPlayer"
         init {
             try {
-                // SOLO cargar nuestra librería nativa - NO libgstreamer_android
+                System.loadLibrary("gstreamer_android")
                 System.loadLibrary("gstreamer-native")
-                Log.d(TAG, "✅ Librería gstreamer-native cargada exitosamente")
+                Log.d(TAG, "✅ Librerías GStreamer cargadas exitosamente")
             } catch (e: UnsatisfiedLinkError) {
-                Log.e(TAG, "❌ Error cargando librería nativa: ${e.message}")
+                Log.e(TAG, "❌ Error cargando librerías nativas: ${e.message}")
             }
         }
     }
@@ -41,6 +37,7 @@ class RTSPPlayer {
     // Estados internos
     private var isInitialized = false
     private var currentUrl: String? = null
+    private var currentSurface: Surface? = null
 
     // Métodos nativos
     external fun nativeInit(): Boolean
@@ -48,21 +45,35 @@ class RTSPPlayer {
     external fun nativePlay(): Boolean
     external fun nativeStop()
     external fun nativeCleanup()
+    external fun nativeSetSurface(surface: Surface?)
+
+    // Función para establecer la superficie de video
+    fun setSurface(surface: Surface?) {
+        try {
+            currentSurface = surface
+            if (isInitialized) {
+                nativeSetSurface(surface)
+                Log.d(TAG, if (surface != null) "✅ Superficie establecida" else "🗑️ Superficie eliminada")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error estableciendo superficie: ${e.message}")
+            _errorMessage.value = "Error estableciendo superficie: ${e.message}"
+        }
+    }
 
     // Callback llamado desde código nativo
     @Suppress("unused")
     fun onFrameAvailable(size: Int, frameData: ByteArray) {
         try {
-            _frameInfo.value = "Frame recibido: $size bytes"
+            _frameInfo.value = "Video activo: $size bytes"
             _connectionStatus.value = ConnectionStatus.STREAMING
-            Log.d(TAG, "📹 Frame recibido: $size bytes")
+            Log.d(TAG, "📹 Frame de video: $size bytes")
         } catch (e: Exception) {
             Log.e(TAG, "Error procesando frame: ${e.message}")
             _errorMessage.value = "Error procesando frame: ${e.message}"
         }
     }
 
-    // Funciones públicas
     fun initialize(): Boolean {
         return try {
             Log.d(TAG, "🔄 Inicializando RTSP Player...")
@@ -73,6 +84,10 @@ class RTSPPlayer {
             if (result) {
                 isInitialized = true
                 _connectionStatus.value = ConnectionStatus.INITIALIZED
+
+                // Establecer superficie si ya existe
+                currentSurface?.let { nativeSetSurface(it) }
+
                 Log.d(TAG, "✅ RTSP Player inicializado")
             } else {
                 _connectionStatus.value = ConnectionStatus.ERROR
@@ -166,6 +181,7 @@ class RTSPPlayer {
         try {
             Log.d(TAG, "🧹 Limpiando recursos...")
             stopPlaying()
+            currentSurface = null
             nativeCleanup()
             isInitialized = false
             currentUrl = null
@@ -180,33 +196,5 @@ class RTSPPlayer {
 
     fun clearError() {
         _errorMessage.value = null
-    }
-}
-
-
-enum class ConnectionStatus(val displayName: String) {
-    DISCONNECTED("Desconectado"),
-    INITIALIZING("Inicializando..."),
-    INITIALIZED("Inicializado"),
-    CONNECTING("Conectando..."),
-    CONNECTED("Conectado"),
-    STARTING("Iniciando..."),
-    PLAYING("Reproduciendo"),
-    STREAMING("Streaming activo"),
-    ERROR("Error")
-}
-
-@Composable
-fun getStatusColor(status: ConnectionStatus): Color {
-    return when (status) {
-        ConnectionStatus.DISCONNECTED -> MaterialTheme.colorScheme.onSurfaceVariant
-        ConnectionStatus.INITIALIZING -> MaterialTheme.colorScheme.primary
-        ConnectionStatus.INITIALIZED -> MaterialTheme.colorScheme.primary
-        ConnectionStatus.CONNECTING -> MaterialTheme.colorScheme.primary
-        ConnectionStatus.CONNECTED -> MaterialTheme.colorScheme.tertiary
-        ConnectionStatus.STARTING -> MaterialTheme.colorScheme.primary
-        ConnectionStatus.PLAYING -> MaterialTheme.colorScheme.secondary
-        ConnectionStatus.STREAMING -> MaterialTheme.colorScheme.secondary
-        ConnectionStatus.ERROR -> MaterialTheme.colorScheme.error
     }
 }
