@@ -321,11 +321,23 @@ static void* forwarding_pipeline_function(void *userdata) {
     g_main_context_push_thread_default(data->forwarding_context);
 
     // Pipeline simplificado que debería funcionar con plugins básicos
+//    pipeline_description = g_strdup_printf(
+//            "rtspsrc location=%s latency=100 drop-on-latency=true ! "
+//            "decodebin ! videoconvert ! "
+//            "x264enc bitrate=1000 tune=zerolatency ! "
+//            "rtph264pay config-interval=1 pt=96 ! "
+//            "udpsink host=%s port=%d sync=false",
+//            data->uri, data->janus_ip, data->video_port);
+
+//    pipeline_description = g_strdup_printf(
+//            "rtspsrc location=%s latency=300 drop-on-latency=true ! "
+//            "rtph264depay ! rtph264pay config-interval=1 pt=96 ! "
+//            "udpsink host=%s port=%d sync=false",
+//            data->uri, data->janus_ip, data->video_port);
+
     pipeline_description = g_strdup_printf(
-            "rtspsrc location=%s latency=100 drop-on-latency=true ! "
-            "decodebin ! videoconvert ! "
-            "x264enc bitrate=1000 tune=zerolatency ! "
-            "rtph264pay config-interval=1 pt=96 ! "
+            "rtspsrc location=%s latency=500 drop-on-latency=true ! "
+            "rtph264depay ! rtph264pay config-interval=1 pt=96 ! "
             "udpsink host=%s port=%d sync=false",
             data->uri, data->janus_ip, data->video_port);
 
