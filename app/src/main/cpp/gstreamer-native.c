@@ -349,14 +349,27 @@ static void* forwarding_pipeline_function(void *userdata) {
 //            data->janus_ip, data->audio_port              // audio
 //    );
 
+// OK
+//    pipeline_description = g_strdup_printf(
+//            "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
+//            "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
+//            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! aacparse ! avdec_aac ! audioconvert ! audioresample ! opusenc ! rtpopuspay pt=111 ! udpsink host=%s port=%d sync=false",
+//            data->uri,
+//            data->janus_ip, data->video_port,
+//            data->janus_ip, data->audio_port
+//    );
+
     pipeline_description = g_strdup_printf(
             "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
             "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
-            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! aacparse ! avdec_aac ! audioconvert ! audioresample ! opusenc ! rtpopuspay pt=111 ! udpsink host=%s port=%d sync=false",
+            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! aacparse ! avdec_aac ! "
+            "audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! "
+            "opusenc bitrate=64000 complexity=5 ! rtpopuspay pt=111 ! udpsink host=%s port=%d sync=false",
             data->uri,
             data->janus_ip, data->video_port,
             data->janus_ip, data->audio_port
     );
+
 
     LOGI("Forwarding pipeline: %s", pipeline_description);
 
