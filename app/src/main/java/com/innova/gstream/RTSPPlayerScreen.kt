@@ -32,7 +32,8 @@ fun RTSPPlayerScreen() {
     val forwardingInfo by player.forwardingInfo.collectAsState()
 
     // Estados locales de la UI
-    var rtspUrl by remember { mutableStateOf("rtsp://192.168.0.105:8554/mystream") }
+//    var rtspUrl by remember { mutableStateOf("rtsp://192.168.0.105:8554/mystream") }
+    var rtspUrl by remember { mutableStateOf("rtsp://admin:Abcd9874@192.168.0.150:554/Streaming/Channels/102") }
     var isAutoRetryEnabled by remember { mutableStateOf(false) }
 
     // Limpiar recursos al salir
@@ -119,7 +120,7 @@ fun RTSPPlayerScreen() {
             value = rtspUrl,
             onValueChange = { rtspUrl = it },
             label = { Text("URL RTSP") },
-            placeholder = { Text("rtsp://192.168.0.105:8554/mystream") },
+            placeholder = { Text("rtsp://.....") },
             modifier = Modifier.fillMaxWidth(),
             enabled = !isPlaying,
             leadingIcon = {
