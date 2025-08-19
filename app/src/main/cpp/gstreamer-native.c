@@ -304,9 +304,49 @@ static void* main_pipeline_function(void *userdata) {
     return NULL;
 }
 
-//====================================================================
-// FUNCIÓN DEL THREAD DE FORWARDING (SIMPLIFICADA)
-//====================================================================
+// ============================================================================
+// CALLBACK DE ESTADO MEJORADO
+// ============================================================================
+
+static void forwarding_state_changed_cb_fixed(GstBus *bus, GstMessage *msg, RTSPPlayerData *data) {
+    GstState old_state, new_state, pending_state;
+    gst_message_parse_state_changed(msg, &old_state, &new_state, &pending_state);
+
+    if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data->forwarding_pipeline)) {
+        LOGI("🔄 Forwarding pipeline state: %s → %s",
+             gst_element_state_get_name(old_state),
+             gst_element_state_get_name(new_state));
+
+        if (pending_state != GST_STATE_VOID_PENDING) {
+            LOGI("   Pending: %s", gst_element_state_get_name(pending_state));
+        }
+
+        // ✅ NOTIFICAR ESTADOS CORRECTOS
+        switch (new_state) {
+            case GST_STATE_NULL:
+                notify_forwarding_status_safe(0); // DISABLED
+                break;
+            case GST_STATE_READY:
+                notify_forwarding_status_safe(1); // READY
+                break;
+            case GST_STATE_PAUSED:
+                notify_forwarding_status_safe(1); // READY (preparándose para streaming)
+                break;
+            case GST_STATE_PLAYING:
+                notify_forwarding_status_safe(2); // ✅ ACTIVE - STREAMING!
+                LOGI("🎉 ¡FORWARDING ACTIVO! Enviando RTP a Janus...");
+                break;
+            default:
+                break;
+        }
+    }
+}
+
+
+// ============================================================================
+// VERSIÓN CORREGIDA: forwarding_pipeline_function
+// ============================================================================
+
 static void* forwarding_pipeline_function(void *userdata) {
     RTSPPlayerData *data = (RTSPPlayerData*)userdata;
     GstBus *bus;
@@ -320,45 +360,7 @@ static void* forwarding_pipeline_function(void *userdata) {
     data->forwarding_context = g_main_context_new();
     g_main_context_push_thread_default(data->forwarding_context);
 
-    // Pipeline simplificado que debería funcionar con plugins básicos
-//    pipeline_description = g_strdup_printf(
-//            "rtspsrc location=%s latency=100 drop-on-latency=true ! "
-//            "decodebin ! videoconvert ! "
-//            "x264enc bitrate=1000 tune=zerolatency ! "
-//            "rtph264pay config-interval=1 pt=96 ! "
-//            "udpsink host=%s port=%d sync=false",
-//            data->uri, data->janus_ip, data->video_port);
-
-//    pipeline_description = g_strdup_printf(
-//            "rtspsrc location=%s latency=300 drop-on-latency=true ! "
-//            "rtph264depay ! rtph264pay config-interval=1 pt=96 ! "
-//            "udpsink host=%s port=%d sync=false",
-//            data->uri, data->janus_ip, data->video_port);
-
-//    pipeline_description = g_strdup_printf(
-//            "rtspsrc location=%s latency=700 drop-on-latency=true ! "
-//            "rtph264depay ! rtph264pay config-interval=1 pt=96 ! "
-//            "udpsink host=%s port=%d sync=false",
-//            data->uri, data->janus_ip, data->video_port);
-
-//    pipeline_description = g_strdup_printf(
-//            "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
-//            "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
-//            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! rtpmp4gpay pt=97 ! udpsink host=%s port=%d sync=false",
-//            data->uri, data->janus_ip, data->video_port,  // video
-//            data->janus_ip, data->audio_port              // audio
-//    );
-
-// OK
-//    pipeline_description = g_strdup_printf(
-//            "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
-//            "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
-//            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! aacparse ! avdec_aac ! audioconvert ! audioresample ! opusenc ! rtpopuspay pt=111 ! udpsink host=%s port=%d sync=false",
-//            data->uri,
-//            data->janus_ip, data->video_port,
-//            data->janus_ip, data->audio_port
-//    );
-
+    // Tu pipeline (mismo que ya tienes)
     pipeline_description = g_strdup_printf(
             "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
             "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
@@ -371,21 +373,32 @@ static void* forwarding_pipeline_function(void *userdata) {
     );
 
 
+    pipeline_description = g_strdup_printf(
+            "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
+            "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
+            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! aacparse ! avdec_aac ! "
+            "audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! "
+            "opusenc bitrate=64000 complexity=5 ! rtpopuspay pt=111 ! udpsink host=%s port=%d sync=false",
+            data->uri,
+            data->janus_ip, data->video_port,
+            data->janus_ip, data->audio_port
+    );
+
     LOGI("Forwarding pipeline: %s", pipeline_description);
 
-    // Crear pipeline desde descripción
+    // Crear pipeline
     data->forwarding_pipeline = gst_parse_launch(pipeline_description, &error);
     if (!data->forwarding_pipeline || error) {
         LOGE("Failed to create forwarding pipeline: %s",
              error ? error->message : "Unknown error");
         if (error) g_error_free(error);
         g_free(pipeline_description);
-        notify_forwarding_status_safe(3); // ERROR
+        notify_forwarding_status_safe(4); // ERROR
         return NULL;
     }
     g_free(pipeline_description);
 
-    // Configurar el bus
+    // Configurar bus
     bus = gst_element_get_bus(data->forwarding_pipeline);
     bus_source = gst_bus_create_watch(bus);
     g_source_set_callback(bus_source, (GSourceFunc)gst_bus_async_signal_func, NULL, NULL);
@@ -395,17 +408,38 @@ static void* forwarding_pipeline_function(void *userdata) {
     // Conectar señales
     g_signal_connect(G_OBJECT(bus), "message::error", (GCallback)forwarding_error_cb, data);
     g_signal_connect(G_OBJECT(bus), "message::eos", (GCallback)forwarding_eos_cb, data);
-    g_signal_connect(G_OBJECT(bus), "message::state-changed", (GCallback)forwarding_state_changed_cb, data);
+    g_signal_connect(G_OBJECT(bus), "message::state-changed", (GCallback)forwarding_state_changed_cb_fixed, data);
     gst_object_unref(bus);
 
-    // Crear loop
+    // ✅ AQUÍ ES DONDE DEBEMOS CAMBIAR A PLAYING - DENTRO DEL THREAD
+    LOGI("🔄 Cambiando pipeline a PLAYING desde thread correcto...");
+
+    GstStateChangeReturn ret = gst_element_set_state(data->forwarding_pipeline, GST_STATE_PLAYING);
+
+    switch (ret) {
+        case GST_STATE_CHANGE_SUCCESS:
+            LOGI("✅ Pipeline cambió a PLAYING inmediatamente");
+            break;
+        case GST_STATE_CHANGE_ASYNC:
+            LOGI("🔄 Pipeline cambiando a PLAYING de forma asíncrona...");
+            break;
+        case GST_STATE_CHANGE_FAILURE:
+            LOGE("❌ Error fatal cambiando a PLAYING");
+            notify_forwarding_status_safe(4); // ERROR
+            return NULL;
+        default:
+            LOGE("⚠️ Estado desconocido: %d", ret);
+            break;
+    }
+
+    // Crear loop y correr
     data->forwarding_loop = g_main_loop_new(data->forwarding_context, FALSE);
 
     LOGI("Entering forwarding pipeline loop");
     g_main_loop_run(data->forwarding_loop);
     LOGI("Exited forwarding pipeline loop");
 
-    // Limpiar
+    // Limpiar...
     g_main_loop_unref(data->forwarding_loop);
     data->forwarding_loop = NULL;
     g_main_context_pop_thread_default(data->forwarding_context);
@@ -422,6 +456,159 @@ static void* forwarding_pipeline_function(void *userdata) {
 
     return NULL;
 }
+
+
+
+// ============================================================================
+// FUNCIÓN AUXILIAR PARA DEBUGGING
+// ============================================================================
+
+// Agregar esta función para debug manual si necesitas
+JNIEXPORT jboolean JNICALL
+Java_com_innova_gstream_RTSPPlayer_nativeForcePlay(JNIEnv *env, jobject thiz) {
+    if (!player_data || !player_data->forwarding_pipeline) {
+        LOGE("Pipeline no disponible para force play");
+        return JNI_FALSE;
+    }
+
+    LOGI("🔧 Forzando cambio a PLAYING...");
+
+    GstStateChangeReturn ret = gst_element_set_state(player_data->forwarding_pipeline, GST_STATE_PLAYING);
+
+    switch (ret) {
+        case GST_STATE_CHANGE_SUCCESS:
+            LOGI("✅ Force play exitoso");
+            return JNI_TRUE;
+        case GST_STATE_CHANGE_ASYNC:
+            LOGI("🔄 Force play asíncrono...");
+            return JNI_TRUE;
+        case GST_STATE_CHANGE_FAILURE:
+            LOGE("❌ Force play falló");
+            return JNI_FALSE;
+        default:
+            LOGE("⚠️ Force play estado desconocido");
+            return JNI_FALSE;
+    }
+}
+
+//====================================================================
+// FUNCIÓN DEL THREAD DE FORWARDING (SIMPLIFICADA)
+//====================================================================
+//static void* forwarding_pipeline_function(void *userdata) {
+//    RTSPPlayerData *data = (RTSPPlayerData*)userdata;
+//    GstBus *bus;
+//    GSource *bus_source;
+//    gchar *pipeline_description;
+//    GError *error = NULL;
+//
+//    LOGI("Creating forwarding pipeline in thread");
+//
+//    // Crear contexto GLib
+//    data->forwarding_context = g_main_context_new();
+//    g_main_context_push_thread_default(data->forwarding_context);
+//
+//    // Pipeline simplificado que debería funcionar con plugins básicos
+////    pipeline_description = g_strdup_printf(
+////            "rtspsrc location=%s latency=100 drop-on-latency=true ! "
+////            "decodebin ! videoconvert ! "
+////            "x264enc bitrate=1000 tune=zerolatency ! "
+////            "rtph264pay config-interval=1 pt=96 ! "
+////            "udpsink host=%s port=%d sync=false",
+////            data->uri, data->janus_ip, data->video_port);
+//
+////    pipeline_description = g_strdup_printf(
+////            "rtspsrc location=%s latency=300 drop-on-latency=true ! "
+////            "rtph264depay ! rtph264pay config-interval=1 pt=96 ! "
+////            "udpsink host=%s port=%d sync=false",
+////            data->uri, data->janus_ip, data->video_port);
+//
+////    pipeline_description = g_strdup_printf(
+////            "rtspsrc location=%s latency=700 drop-on-latency=true ! "
+////            "rtph264depay ! rtph264pay config-interval=1 pt=96 ! "
+////            "udpsink host=%s port=%d sync=false",
+////            data->uri, data->janus_ip, data->video_port);
+//
+////    pipeline_description = g_strdup_printf(
+////            "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
+////            "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
+////            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! rtpmp4gpay pt=97 ! udpsink host=%s port=%d sync=false",
+////            data->uri, data->janus_ip, data->video_port,  // video
+////            data->janus_ip, data->audio_port              // audio
+////    );
+//
+//// OK
+////    pipeline_description = g_strdup_printf(
+////            "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
+////            "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
+////            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! aacparse ! avdec_aac ! audioconvert ! audioresample ! opusenc ! rtpopuspay pt=111 ! udpsink host=%s port=%d sync=false",
+////            data->uri,
+////            data->janus_ip, data->video_port,
+////            data->janus_ip, data->audio_port
+////    );
+//
+//    pipeline_description = g_strdup_printf(
+//            "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
+//            "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
+//            "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! aacparse ! avdec_aac ! "
+//            "audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! "
+//            "opusenc bitrate=64000 complexity=5 ! rtpopuspay pt=111 ! udpsink host=%s port=%d sync=false",
+//            data->uri,
+//            data->janus_ip, data->video_port,
+//            data->janus_ip, data->audio_port
+//    );
+//
+//
+//    LOGI("Forwarding pipeline: %s", pipeline_description);
+//
+//    // Crear pipeline desde descripción
+//    data->forwarding_pipeline = gst_parse_launch(pipeline_description, &error);
+//    if (!data->forwarding_pipeline || error) {
+//        LOGE("Failed to create forwarding pipeline: %s",
+//             error ? error->message : "Unknown error");
+//        if (error) g_error_free(error);
+//        g_free(pipeline_description);
+//        notify_forwarding_status_safe(3); // ERROR
+//        return NULL;
+//    }
+//    g_free(pipeline_description);
+//
+//    // Configurar el bus
+//    bus = gst_element_get_bus(data->forwarding_pipeline);
+//    bus_source = gst_bus_create_watch(bus);
+//    g_source_set_callback(bus_source, (GSourceFunc)gst_bus_async_signal_func, NULL, NULL);
+//    g_source_attach(bus_source, data->forwarding_context);
+//    g_source_unref(bus_source);
+//
+//    // Conectar señales
+//    g_signal_connect(G_OBJECT(bus), "message::error", (GCallback)forwarding_error_cb, data);
+//    g_signal_connect(G_OBJECT(bus), "message::eos", (GCallback)forwarding_eos_cb, data);
+//    g_signal_connect(G_OBJECT(bus), "message::state-changed", (GCallback)forwarding_state_changed_cb, data);
+//    gst_object_unref(bus);
+//
+//    // Crear loop
+//    data->forwarding_loop = g_main_loop_new(data->forwarding_context, FALSE);
+//
+//    LOGI("Entering forwarding pipeline loop");
+//    g_main_loop_run(data->forwarding_loop);
+//    LOGI("Exited forwarding pipeline loop");
+//
+//    // Limpiar
+//    g_main_loop_unref(data->forwarding_loop);
+//    data->forwarding_loop = NULL;
+//    g_main_context_pop_thread_default(data->forwarding_context);
+//    g_main_context_unref(data->forwarding_context);
+//
+//    if (data->forwarding_pipeline) {
+//        gst_element_set_state(data->forwarding_pipeline, GST_STATE_NULL);
+//        gst_object_unref(data->forwarding_pipeline);
+//        data->forwarding_pipeline = NULL;
+//    }
+//
+//    data->forwarding_active = FALSE;
+//    notify_forwarding_status_safe(0); // DISABLED
+//
+//    return NULL;
+//}
 
 //====================================================================
 // MÉTODOS JNI EXPORTADOS - FUNCIONALIDAD PRINCIPAL
@@ -614,6 +801,42 @@ Java_com_innova_gstream_RTSPPlayer_nativeCreateForwardingPipeline(
     return JNI_TRUE;
 }
 
+//JNIEXPORT jboolean JNICALL
+//Java_com_innova_gstream_RTSPPlayer_nativeStartForwarding(JNIEnv *env, jobject thiz) {
+//    if (!player_data || !player_data->janus_ip || !player_data->uri) {
+//        LOGE("Forwarding no configurado");
+//        return JNI_FALSE;
+//    }
+//
+//    if (player_data->forwarding_active) {
+//        LOGI("Forwarding ya está activo");
+//        return JNI_TRUE;
+//    }
+//
+//    LOGI("Iniciando forwarding pipeline...");
+//
+//    player_data->forwarding_active = TRUE;
+//
+//    // Crear thread de forwarding
+//    pthread_create(&player_data->forwarding_thread, NULL, &forwarding_pipeline_function, player_data);
+//
+//    // Dar tiempo para inicializar
+//    usleep(500000); // 0.5 segundos
+//
+//    // Iniciar pipeline si se creó correctamente
+//    if (player_data->forwarding_pipeline) {
+//        GstStateChangeReturn ret = gst_element_set_state(player_data->forwarding_pipeline, GST_STATE_PLAYING);
+//        if (ret == GST_STATE_CHANGE_FAILURE) {
+//            LOGE("Error iniciando forwarding pipeline");
+//            return JNI_FALSE;
+//        }
+//    }
+//
+//    LOGI("Forwarding iniciado");
+//    return JNI_TRUE;
+//}
+
+
 JNIEXPORT jboolean JNICALL
 Java_com_innova_gstream_RTSPPlayer_nativeStartForwarding(JNIEnv *env, jobject thiz) {
     if (!player_data || !player_data->janus_ip || !player_data->uri) {
@@ -626,28 +849,20 @@ Java_com_innova_gstream_RTSPPlayer_nativeStartForwarding(JNIEnv *env, jobject th
         return JNI_TRUE;
     }
 
-    LOGI("Iniciando forwarding pipeline...");
-
+    LOGI("🚀 Iniciando forwarding...");
     player_data->forwarding_active = TRUE;
 
-    // Crear thread de forwarding
+    // ✅ CREAR THREAD - PERO NO CAMBIAR ESTADO AQUÍ
     pthread_create(&player_data->forwarding_thread, NULL, &forwarding_pipeline_function, player_data);
 
-    // Dar tiempo para inicializar
-    usleep(500000); // 0.5 segundos
+    // ✅ SOLO ESPERAR A QUE SE CREE EL PIPELINE
+    // El cambio a PLAYING se hará DENTRO del thread
 
-    // Iniciar pipeline si se creó correctamente
-    if (player_data->forwarding_pipeline) {
-        GstStateChangeReturn ret = gst_element_set_state(player_data->forwarding_pipeline, GST_STATE_PLAYING);
-        if (ret == GST_STATE_CHANGE_FAILURE) {
-            LOGE("Error iniciando forwarding pipeline");
-            return JNI_FALSE;
-        }
-    }
-
-    LOGI("Forwarding iniciado");
+    LOGI("✅ Thread de forwarding iniciado");
     return JNI_TRUE;
 }
+
+
 
 JNIEXPORT void JNICALL
 Java_com_innova_gstream_RTSPPlayer_nativeStopForwarding(JNIEnv *env, jobject thiz) {
