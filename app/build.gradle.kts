@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.innova.gstream"
-    compileSdk = 35
+    compileSdk = 34
 
     defaultConfig {
         applicationId = "com.innova.gstream"
         minSdk = 24
-        targetSdk = 35
+        targetSdk = 34
         versionCode = 1
         versionName = "1.0"
 
@@ -38,7 +38,8 @@ android {
                 targets("gstreamer-native")
 
                 // Arquitecturas soportadas por GStreamer
-                abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+//                abiFilters += listOf("armeabi-v7a", "arm64-v8a", "x86", "x86_64")
+                abiFilters += listOf("arm64-v8a")
             }
         }
     }
