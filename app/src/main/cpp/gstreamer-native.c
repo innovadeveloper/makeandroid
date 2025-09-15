@@ -24,59 +24,72 @@
 
 //====================================================================
 // ESTRUCTURA DE DATOS DEL PLAYER CON FORWARDING
+// Esta estructura contiene todos los elementos necesarios para:
+// 1. Reproducir un stream RTSP en Android (pipeline principal)
+// 2. Reenviar el stream a un servidor Janus WebRTC (pipeline forwarding)
 //====================================================================
 typedef struct _RTSPPlayerData {
-    // Pipeline principal (reproducción)
-    GstElement *main_pipeline;
-    GMainContext *main_context;
-    GMainLoop *main_loop;
-    pthread_t main_thread;
+    // Pipeline principal (reproducción): maneja la recepción y visualización del stream RTSP
+    GstElement *main_pipeline;   // Pipeline GStreamer para reproducción local (playbin)
+    GMainContext *main_context;  // Contexto GLib para manejo de eventos del pipeline principal
+    GMainLoop *main_loop;        // Loop principal para procesar mensajes del pipeline
+    pthread_t main_thread;       // Thread dedicado para el pipeline de reproducción
 
-    // Pipeline de forwarding (simplificado)
-    GstElement *forwarding_pipeline;
-    GMainContext *forwarding_context;
-    GMainLoop *forwarding_loop;
-    pthread_t forwarding_thread;
-    gboolean forwarding_active;
+    // Pipeline de forwarding: reenvía el stream RTSP como RTP hacia Janus
+    GstElement *forwarding_pipeline; // Pipeline que conecta RTSP→RTP para Janus WebRTC
+    GMainContext *forwarding_context; // Contexto GLib independiente para forwarding
+    GMainLoop *forwarding_loop;      // Loop del thread de forwarding
+    pthread_t forwarding_thread;     // Thread separado para no bloquear reproducción
+    gboolean forwarding_active;      // Flag para controlar estado del forwarding
 
-    // Estados
-    gboolean initialized;
-    GstState main_state;
-    GstState forwarding_state;
-    GstState target_state;
+    // Estados de los pipelines
+    gboolean initialized;        // TRUE cuando el pipeline principal está listo
+    GstState main_state;         // Estado actual del pipeline principal (NULL/READY/PAUSED/PLAYING)
+    GstState forwarding_state;   // Estado actual del pipeline de forwarding
+    GstState target_state;       // Estado objetivo del pipeline principal
 
-    // JNI
-    JavaVM *jvm;
-    jobject app_ref;
-    jmethodID on_frame_available_id;
-    jmethodID on_forwarding_status_id;
+    // Interfaz JNI para comunicación con Java
+    JavaVM *jvm;                        // Referencia a la JVM para attach/detach threads
+    jobject app_ref;                    // Referencia global al objeto Java RTSPPlayer
+    jmethodID on_frame_available_id;    // Callback Java para notificar frames disponibles
+    jmethodID on_forwarding_status_id;  // Callback Java para notificar estado de forwarding
 
-    // Thread seguro para callbacks
-    pthread_t main_java_thread;
-    gboolean is_main_thread_attached;
+    // Thread safety para callbacks JNI
+    pthread_t main_java_thread;     // ID del thread principal de Java
+    gboolean is_main_thread_attached; // Flag para evitar detach del thread principal
 
-    // Configuración
-    gchar *uri;
-    gchar *janus_ip;
-    gint video_port;
-    gint audio_port;
+    // Configuración del streaming
+    gchar *uri;          // URI del stream RTSP (ej: rtsp://192.168.1.100:554/stream)
+    gchar *janus_ip;     // IP del servidor Janus para forwarding (ej: 192.168.1.200)
+    gint video_port;     // Puerto UDP para envío de video RTP (ej: 5004)
+    gint audio_port;     // Puerto UDP para envío de audio RTP (ej: 5006)
 
-    // Video surface
-    ANativeWindow *native_window;
-    gboolean has_window;
-    gboolean window_set;
+    // Surface de video Android
+    ANativeWindow *native_window;  // Ventana nativa Android para renderizado de video
+    gboolean has_window;          // TRUE si hay una superficie válida
+    gboolean window_set;          // TRUE si la superficie fue asignada al pipeline
 } RTSPPlayerData;
 
 static RTSPPlayerData *player_data = NULL;
 
 //====================================================================
 // FUNCIONES DE UTILIDAD JNI THREAD-SAFE
+// Estas funciones garantizan que los callbacks a Java se hagan de manera
+// segura desde cualquier thread GStreamer, evitando crashes por JNI
 //====================================================================
+/**
+ * Verifica si el thread actual es el thread principal de Java
+ * Esto es crucial para evitar DetachCurrentThread() en el thread principal
+ */
 static gboolean is_main_java_thread(void) {
     if (!player_data) return FALSE;
     return (pthread_self() == player_data->main_java_thread);
 }
 
+/**
+ * Conecta el thread actual a la JVM de manera segura
+ * Los threads de GStreamer necesitan estar "attached" para hacer callbacks a Java
+ */
 static JNIEnv* attach_current_thread_safe(void) {
     if (!player_data || !player_data->jvm) {
         LOGE("No player data or JVM available");
@@ -89,6 +102,7 @@ static JNIEnv* attach_current_thread_safe(void) {
     args.name = NULL;
     args.group = NULL;
 
+    // Conectar el thread actual a la JVM para poder usar JNI
     jint result = (*player_data->jvm)->AttachCurrentThread(player_data->jvm, &env, &args);
     if (result < 0) {
         LOGE("Failed to attach current thread: %d", result);
@@ -98,10 +112,15 @@ static JNIEnv* attach_current_thread_safe(void) {
     return env;
 }
 
+/**
+ * Desconecta el thread actual de la JVM de manera segura
+ * IMPORTANTE: NUNCA desconectar el thread principal de Java
+ */
 static void detach_current_thread_safe(void) {
     if (!player_data || !player_data->jvm) return;
 
-    // NUNCA hacer detach del thread principal de Java
+    // CRÍTICO: NUNCA hacer detach del thread principal de Java
+    // Esto causaría un crash inmediato de la aplicación
     if (is_main_java_thread()) {
         LOGD("Skipping detach for main Java thread");
         return;
@@ -143,8 +162,16 @@ static void notify_forwarding_status_safe(gint status) {
 }
 
 //====================================================================
-// CALLBACKS DEL PIPELINE PRINCIPAL
+// CALLBACKS DEL PIPELINE PRINCIPAL (REPRODUCCIÓN RTSP)
+// Estos callbacks manejan eventos del pipeline de reproducción:
+// - Errores de conexión RTSP
+// - Fin de stream
+// - Cambios de estado (NULL→READY→PAUSED→PLAYING)
 //====================================================================
+/**
+ * Callback para errores del pipeline principal
+ * Se ejecuta cuando hay problemas de conexión RTSP, codec no soportado, etc.
+ */
 static void main_error_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *data) {
     GError *err;
     gchar *debug_info;
@@ -154,6 +181,7 @@ static void main_error_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *data) {
 
     g_clear_error(&err);
     g_free(debug_info);
+    // En caso de error, detener completamente el pipeline
     data->target_state = GST_STATE_NULL;
     gst_element_set_state(data->main_pipeline, GST_STATE_NULL);
 }
@@ -237,7 +265,15 @@ static void forwarding_state_changed_cb(GstBus *bus, GstMessage *msg, RTSPPlayer
 
 //====================================================================
 // FUNCIÓN PRINCIPAL DEL THREAD DE REPRODUCCIÓN
+// Este thread maneja todo el pipeline de reproducción RTSP:
+// 1. Crea un pipeline 'playbin' que maneja automáticamente la decodificación
+// 2. Configura el bus para recibir mensajes de error/estado
+// 3. Renderiza el video en la superficie Android proporcionada
 //====================================================================
+/**
+ * Thread principal que maneja la reproducción del stream RTSP
+ * Se ejecuta en un thread separado para no bloquear la UI de Android
+ */
 static void* main_pipeline_function(void *userdata) {
     RTSPPlayerData *data = (RTSPPlayerData*)userdata;
     GstBus *bus;
@@ -249,14 +285,16 @@ static void* main_pipeline_function(void *userdata) {
     data->main_context = g_main_context_new();
     g_main_context_push_thread_default(data->main_context);
 
-    // Crear pipeline usando playbin (más compatible)
+    // Crear pipeline usando playbin (más compatible con diferentes formatos RTSP)
+    // playbin maneja automáticamente: rtspsrc + decodificadores + sink de video
     data->main_pipeline = gst_element_factory_make("playbin", "main-player");
     if (!data->main_pipeline) {
         LOGE("Failed to create main pipeline");
         return NULL;
     }
 
-    // Configurar el pipeline (corregir typo buffer)
+    // Configurar buffering para streams en vivo (RTSP)
+    // -1 = sin límite de buffer, importante para evitar interrupciones
     g_object_set(data->main_pipeline,
                  "buffer-size", -1,
                  "buffer-duration", -1,
@@ -344,9 +382,18 @@ static void forwarding_state_changed_cb_fixed(GstBus *bus, GstMessage *msg, RTSP
 
 
 // ============================================================================
-// VERSIÓN CORREGIDA: forwarding_pipeline_function
+// PIPELINE DE FORWARDING - RTSP a RTP para Janus WebRTC
+// Este pipeline:
+// 1. Conecta al mismo stream RTSP que el pipeline principal
+// 2. Extrae los streams de video (H.264) y audio (AAC/MP4)
+// 3. Los reempaqueta como RTP y los envía vía UDP a Janus
+// 4. Janus los redistribuye como WebRTC a clientes web
 // ============================================================================
 
+/**
+ * Thread de forwarding que reenvía el stream RTSP como RTP hacia Janus
+ * Este es el corazón del sistema de redistribución de video
+ */
 static void* forwarding_pipeline_function(void *userdata) {
     RTSPPlayerData *data = (RTSPPlayerData*)userdata;
     GstBus *bus;
@@ -360,10 +407,15 @@ static void* forwarding_pipeline_function(void *userdata) {
     data->forwarding_context = g_main_context_new();
     g_main_context_push_thread_default(data->forwarding_context);
 
-    // Tu pipeline (mismo que ya tienes)
+    // PIPELINE COMPLEJO DE FORWARDING:
+    // 1. rtspsrc: conecta al stream RTSP original
+    // 2. RUTA DE VIDEO: RTP H.264 → despaquetizar → reempaquetizar → UDP a Janus
+    // 3. RUTA DE AUDIO: RTP AAC → decodificar → convertir a Opus → UDP a Janus
     pipeline_description = g_strdup_printf(
             "rtspsrc location=%s latency=700 drop-on-latency=false name=src "
+            // RUTA DE VIDEO: mantiene H.264 original para eficiencia
             "src. ! application/x-rtp, media=video ! rtph264depay ! queue ! rtph264pay config-interval=1 pt=96 ! udpsink host=%s port=%d sync=false "
+            // RUTA DE AUDIO: convierte AAC a Opus (mejor para WebRTC)
             "src. ! application/x-rtp, media=audio ! rtpmp4gdepay ! aacparse ! avdec_aac ! "
             "audioconvert ! audioresample ! audio/x-raw,rate=48000,channels=2 ! "
             "opusenc bitrate=64000 complexity=5 ! rtpopuspay pt=111 ! udpsink host=%s port=%d sync=false",
@@ -411,7 +463,8 @@ static void* forwarding_pipeline_function(void *userdata) {
     g_signal_connect(G_OBJECT(bus), "message::state-changed", (GCallback)forwarding_state_changed_cb_fixed, data);
     gst_object_unref(bus);
 
-    // ✅ AQUÍ ES DONDE DEBEMOS CAMBIAR A PLAYING - DENTRO DEL THREAD
+    // ✅ INICIAR EL FORWARDING - ESTO ES CRÍTICO
+    // El cambio de estado DEBE hacerse desde el thread correcto
     LOGI("🔄 Cambiando pipeline a PLAYING desde thread correcto...");
 
     GstStateChangeReturn ret = gst_element_set_state(data->forwarding_pipeline, GST_STATE_PLAYING);
@@ -611,8 +664,14 @@ Java_com_innova_gstream_RTSPPlayer_nativeForcePlay(JNIEnv *env, jobject thiz) {
 //}
 
 //====================================================================
-// MÉTODOS JNI EXPORTADOS - FUNCIONALIDAD PRINCIPAL
+// MÉTODOS JNI EXPORTADOS - INTERFAZ CON ANDROID
+// Estos métodos son llamados desde Java (RTSPPlayer.java) y proporcionan
+// la interfaz principal para controlar el streaming RTSP y forwarding
 //====================================================================
+/**
+ * Inicializa el sistema GStreamer y crea la estructura de datos principal
+ * DEBE ser llamado antes de cualquier otra operación
+ */
 JNIEXPORT jboolean JNICALL
 Java_com_innova_gstream_RTSPPlayer_nativeInit(JNIEnv *env, jobject thiz) {
     LOGI("Inicializando GStreamer...");
@@ -670,6 +729,10 @@ Java_com_innova_gstream_RTSPPlayer_nativeInit(JNIEnv *env, jobject thiz) {
     return JNI_TRUE;
 }
 
+/**
+ * Configura la URL del stream RTSP a reproducir
+ * Esta URL será usada tanto para reproducción como para forwarding
+ */
 JNIEXPORT jboolean JNICALL
 Java_com_innova_gstream_RTSPPlayer_nativeCreatePipeline(JNIEnv *env, jobject thiz, jstring rtsp_url) {
     const char *url = (*env)->GetStringUTFChars(env, rtsp_url, NULL);
