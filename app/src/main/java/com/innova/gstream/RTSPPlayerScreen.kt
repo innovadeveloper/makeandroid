@@ -33,8 +33,8 @@ fun RTSPPlayerScreen() {
 
     // Estados locales de la UI
 //    var rtspUrl by remember { mutableStateOf("rtsp://192.168.0.105:8554/mystream") }
-//    var rtspUrl by remember { mutableStateOf("rtsp://admin:Abcd9874@192.168.0.150:554/Streaming/Channels/102") }
-    var rtspUrl by remember { mutableStateOf("rtsp://admin:Abcd9874@192.168.2.152:554/Streaming/Channels/102") }
+    var rtspUrl by remember { mutableStateOf("rtsp://admin:Abcd9874@192.168.0.150:554/Streaming/Channels/102") }
+//    var rtspUrl by remember { mutableStateOf("rtsp://admin:Abcd9874@192.168.2.152:554/Streaming/Channels/102") }
     var isAutoRetryEnabled by remember { mutableStateOf(false) }
 
     // Limpiar recursos al salir
