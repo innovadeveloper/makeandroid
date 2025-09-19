@@ -200,6 +200,10 @@ static void main_eos_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *data) {
 static void main_state_changed_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *data) {
     GstState old_state, new_state, pending_state;
     gst_message_parse_state_changed(msg, &old_state, &new_state, &pending_state);
+    LOGI("VOID main_state_changed_cb, new_state : %s, msg src: %s, main_pipeline: %s",
+         gst_element_state_get_name(new_state),
+         GST_OBJECT_NAME(GST_MESSAGE_SRC(msg)),
+         GST_OBJECT_NAME(data->main_pipeline));
 
     if (GST_MESSAGE_SRC(msg) == GST_OBJECT(data->main_pipeline)) {
         data->main_state = new_state;
@@ -212,6 +216,7 @@ static void main_state_changed_cb(GstBus *bus, GstMessage *msg, RTSPPlayerData *
             data->window_set = TRUE;
             LOGI("Window handle set to main pipeline");
         }
+        // rtsp://admin:Abcd9874@192.168.2.152:554/Streaming/Channels/102
 
         if (new_state == GST_STATE_PLAYING) {
             // Notificar a Java que están llegando frames
@@ -300,10 +305,14 @@ static void* main_pipeline_function(void *userdata) {
 
     // Configurar buffering para streams en vivo (RTSP)
     // -1 = sin límite de buffer, importante para evitar interrupciones
-    g_object_set(data->main_pipeline,
-                 "buffer-size", -1,
-                 "buffer-duration", -1,
-                 NULL);
+//    g_object_set(data->main_pipeline,
+//                 "buffer-size", -1,
+//                 "buffer-duration", -1,
+//                 NULL);
+
+    // revisar los tipos de configuración...
+    g_object_set(data->main_pipeline, "latency", 0, NULL);
+
 
     // Configurar el bus
     bus = gst_element_get_bus(data->main_pipeline);
