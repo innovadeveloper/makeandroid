@@ -68,7 +68,7 @@ find_package(GStreamerMobile COMPONENTS ${GSTREAMER_PLUGINS} fonts ca_certificat
 
 # Crear la librería compartida
 add_library(gstreamer-native SHARED
-        gstreamer-native.c
+        gstreamer-playback-only.c
         dummy.cpp
 )
 

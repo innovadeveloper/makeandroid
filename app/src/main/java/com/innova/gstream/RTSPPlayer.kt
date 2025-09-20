@@ -52,7 +52,7 @@ class RTSPPlayer {
     private var currentVideoPort: Int = 5004
     private var currentAudioPort: Int = 5006
 
-    // Métodos nativos existentes
+    // Métodos nativos básicos (disponibles en gstreamer-playback-only.c)
     external fun nativeInit(): Boolean
     external fun nativeCreatePipeline(rtspUrl: String): Boolean
     external fun nativePlay(): Boolean
@@ -60,16 +60,32 @@ class RTSPPlayer {
     external fun nativeCleanup()
     external fun nativeSetSurface(surface: Surface?)
 
-    // NUEVOS Métodos nativos para FORWARDING
-    external fun nativeCreateForwardingPipeline(
+    // Métodos de forwarding NO disponibles en playback-only - implementaciones dummy
+    
+    // Dummy implementations for missing forwarding methods
+    private fun nativeCreateForwardingPipeline(
         rtspUrl: String,
         janusIp: String,
         videoPort: Int,
         audioPort: Int
-    ): Boolean
+    ): Boolean {
+        Log.w(TAG, "⚠️ Forwarding no disponible en playback-only mode")
+        return false
+    }
 
-    external fun nativeStartForwarding(): Boolean
-    external fun nativeStopForwarding()
+    private fun nativeStartForwarding(): Boolean {
+        Log.w(TAG, "⚠️ Forwarding no disponible en playback-only mode")
+        return false
+    }
+
+    private fun nativeStopForwarding() {
+        Log.w(TAG, "⚠️ Forwarding no disponible en playback-only mode")
+    }
+
+    private fun nativeForcePlay(): Boolean {
+        Log.w(TAG, "⚠️ ForcePlay no disponible en playback-only mode - usando nativePlay()")
+        return nativePlay()
+    }
 
     // Función para establecer la superficie de video (existente)
     fun setSurface(surface: Surface?) {
@@ -202,6 +218,34 @@ class RTSPPlayer {
         } catch (e: Exception) {
             Log.e(TAG, "Exception iniciando reproducción: ${e.message}")
             _connectionStatus.value = ConnectionStatus.ERROR
+            _errorMessage.value = "Exception: ${e.message}"
+            false
+        }
+    }
+
+    // Método adicional que utiliza nativeForcePlay
+    fun forcePlay(): Boolean {
+        return try {
+            if (!isInitialized) {
+                _errorMessage.value = "Player no inicializado"
+                return false
+            }
+
+            Log.d(TAG, "🔄 Forzando reproducción...")
+            _errorMessage.value = null
+
+            val result = nativeForcePlay()
+            if (result) {
+                _isPlaying.value = true
+                _connectionStatus.value = ConnectionStatus.PLAYING
+                Log.d(TAG, "✅ Reproducción forzada exitosa")
+            } else {
+                _errorMessage.value = "Error forzando reproducción"
+                Log.e(TAG, "❌ Error forzando reproducción")
+            }
+            result
+        } catch (e: Exception) {
+            Log.e(TAG, "Exception forzando reproducción: ${e.message}")
             _errorMessage.value = "Exception: ${e.message}"
             false
         }
