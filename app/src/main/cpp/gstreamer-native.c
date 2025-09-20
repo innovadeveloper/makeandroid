@@ -305,13 +305,14 @@ static void* main_pipeline_function(void *userdata) {
 
     // Configurar buffering para streams en vivo (RTSP)
     // -1 = sin límite de buffer, importante para evitar interrupciones
-//    g_object_set(data->main_pipeline,
-//                 "buffer-size", -1,
-//                 "buffer-duration", -1,
-//                 NULL);
+    g_object_set(data->main_pipeline,
+                 "buffer-size", -1,
+                 "buffer-duration", -1,
+                 NULL);
 
     // revisar los tipos de configuración...
-    g_object_set(data->main_pipeline, "latency", 0, NULL);
+//    g_object_set(data->main_pipeline, "latency", 0, NULL);
+    g_object_set(data->main_pipeline, "latency", 200, NULL);
 
 
     // Configurar el bus
