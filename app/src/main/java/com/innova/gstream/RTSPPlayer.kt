@@ -53,8 +53,8 @@ class RTSPPlayer {
     private var currentAudioPort: Int = 5006
 
     // Métodos nativos existentes
-    external fun nativeInit(): Boolean
-    external fun nativeCreatePipeline(rtspUrl: String): Boolean
+    external fun nativeInit(): Boolean  // initialize transmition local and forwarding
+    external fun nativeCreatePipeline(rtspUrl: String): Boolean // save new URI (use in forwarding too)
     external fun nativePlay(): Boolean
     external fun nativeStop()
     external fun nativeCleanup()
@@ -66,7 +66,7 @@ class RTSPPlayer {
         janusIp: String,
         videoPort: Int,
         audioPort: Int
-    ): Boolean
+    ): Boolean  // setup player-data to use in forwarding
 
     external fun nativeStartForwarding(): Boolean
     external fun nativeStopForwarding()
