@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
             verticalArrangement = Arrangement.Center
         ) {
             Text(
-                text = "🎥 GStreamer Android",
+                text = "GStreamer Android",
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.primary,
@@ -142,11 +142,6 @@ class MainActivity : ComponentActivity() {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "🧪",
-                        fontSize = 48.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    Text(
                         text = "Test GStreamer",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Medium,
@@ -170,11 +165,6 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = "🧪",
-                        fontSize = 48.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
                     Text(
                         text = "Test Library",
                         fontSize = 18.sp,
@@ -254,7 +244,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 // Título
                 Text(
-                    text = "🧪 Test de Integración",
+                    text = "Test de Integración",
                     fontSize = 24.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -267,16 +257,16 @@ class MainActivity : ComponentActivity() {
                         isLoading = true
                         hasError = false
                         try {
-                            Log.d(TAG, "🔄 Iniciando prueba de GStreamer...")
+                            Log.d(TAG, "Iniciando prueba de GStreamer...")
                             val info = nativeGetGStreamerInfo()
-                            resultado = "✅ ¡JNI y GStreamer funcionan correctamente!\n\n📋 Información:\n$info"
+                            resultado = "¡JNI y GStreamer funcionan correctamente!\n\n Información:\n$info"
                             hasError = false
-                            Log.d(TAG, "✅ Resultado GStreamer: $info")
-                            Toast.makeText(context, "¡GStreamer funciona perfectamente! 🎉", Toast.LENGTH_SHORT).show()
+                            Log.d(TAG, "Resultado GStreamer: $info")
+                            Toast.makeText(context, "¡GStreamer funciona perfectamente!", Toast.LENGTH_SHORT).show()
                         } catch (e: Exception) {
-                            resultado = "❌ Error: ${e.message}"
+                            resultado = "Error: ${e.message}"
                             hasError = true
-                            Log.e(TAG, "❌ Error llamando JNI", e)
+                            Log.e(TAG, "Error llamando JNI", e)
                             Toast.makeText(context, "Error: ${e.message}", Toast.LENGTH_LONG).show()
                         } finally {
                             isLoading = false
@@ -307,7 +297,7 @@ class MainActivity : ComponentActivity() {
                         }
                     } else {
                         Text(
-                            text = if (hasError) "🔄 Reintentar" else "🚀 Probar GStreamer",
+                            text = if (hasError) "Reintentar" else "Probar GStreamer",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Medium
                         )
@@ -322,7 +312,7 @@ class MainActivity : ComponentActivity() {
                     colors = CardDefaults.cardColors(
                         containerColor = when {
                             hasError -> MaterialTheme.colorScheme.errorContainer
-                            resultado.contains("✅") -> MaterialTheme.colorScheme.primaryContainer
+                            resultado.contains("") -> MaterialTheme.colorScheme.primaryContainer
                             else -> MaterialTheme.colorScheme.surfaceVariant
                         }
                     )
@@ -354,7 +344,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.padding(16.dp)
                     ) {
                         Text(
-                            text = "💡 Información del sistema:",
+                            text = "Información del sistema:",
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(bottom = 8.dp)
                         )
