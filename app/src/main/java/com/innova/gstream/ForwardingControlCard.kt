@@ -23,7 +23,9 @@ fun ForwardingControlCard(
     forwardingInfo: String,
     connectionStatus: ConnectionStatus
 ) {
-    var janusIp by remember { mutableStateOf("192.168.0.115") }
+//    var janusIp by remember { mutableStateOf("192.168.0.115") }
+//    var janusIp by remember { mutableStateOf("192.168.2.249") }
+    var janusIp by remember { mutableStateOf("192.168.2.13") }
     var videoPort by remember { mutableStateOf("5004") }
     var audioPort by remember { mutableStateOf("5006") }
     var showAdvanced by remember { mutableStateOf(false) }
