@@ -21,6 +21,8 @@ public class NativeLibraryExecutor2 {
     // Método nativo que inicia el hilo
     external fun startThread()
 
+    external fun startCThread(iterations : Int, sleepSeconds : Int)
+
     // Este método será llamado desde C++
     fun onNativeProgress(secondsPassed: Int) {
         println("⏱ Notificación JNI: $secondsPassed segundos")

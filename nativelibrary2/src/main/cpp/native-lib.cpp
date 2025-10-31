@@ -4,6 +4,8 @@
 #include <stdio.h>
 
 #include <android/log.h>
+#include "thread_helper.h" // Incluir el helper de threading en C
+
 #define LOG_TAG "GStreamerRTSP"
 #define LOG_PREFIX "[TRACE-GSTREAM] "
 
@@ -66,7 +68,7 @@ extern "C" jint JNI_OnLoad(JavaVM* vm, void*) {
     return JNI_VERSION_1_6;
 }
 
-// Método nativo que inicia el hilo
+// Método nativo que inicia el hilo C++
 extern "C" JNIEXPORT void JNICALL
 Java_com_innova_native_NativeLibraryExecutor2_startThread(JNIEnv* env, jobject thiz) {
     LOGI("[native-lib] startThread() llamado");
@@ -89,4 +91,42 @@ Java_com_innova_native_NativeLibraryExecutor2_startThread(JNIEnv* env, jobject t
 
     pthread_create(&gThreadId, nullptr, native_thread_func, args);
     pthread_detach(gThreadId);
+}
+
+// Método nativo que inicia el hilo usando la función C pura
+extern "C" JNIEXPORT void JNICALL
+Java_com_innova_native_NativeLibraryExecutor2_startCThread(
+    JNIEnv* env, jobject thiz, jint iterations, jint sleepSeconds) {
+
+    LOGI("[native-lib] startCThread() llamado con %d iteraciones y %d segundos",
+         iterations, sleepSeconds);
+
+    pthread_mutex_lock(&gThreadMutex);
+    if (gThreadRunning) {
+        LOGI("[native-lib] ya existe un hilo corriendo, se ignora la llamada");
+        pthread_mutex_unlock(&gThreadMutex);
+        return;
+    }
+    gThreadRunning = true;
+    pthread_mutex_unlock(&gThreadMutex);
+
+    // Crear referencia global para el callback
+    jobject globalObj = env->NewGlobalRef(thiz);
+
+    // Usar la función auxiliar de C para crear el hilo
+    pthread_t threadId;
+    int result = create_c_thread(gJvm, globalObj, iterations, sleepSeconds,
+                                 &gThreadMutex, &gThreadRunning, &threadId);
+
+    if (result == 0) {
+        LOGI("[native-lib] Hilo C creado exitosamente");
+        pthread_detach(threadId);
+    } else {
+        LOGE("[native-lib] Error al crear hilo C: %d", result);
+        env->DeleteGlobalRef(globalObj);
+
+        pthread_mutex_lock(&gThreadMutex);
+        gThreadRunning = false;
+        pthread_mutex_unlock(&gThreadMutex);
+    }
 }

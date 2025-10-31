@@ -62,9 +62,10 @@ class MainActivity : ComponentActivity() {
                 onNavigateToRTSP = { currentScreen = "rtsp" },
                 onNavigateToTest = { currentScreen = "test" },
                 onLoadLibrary = {
-                    val message = NativeLibraryExecutor().getStringValue()
-                    val authCommand = NativeLibraryExecutor().getAuthenticate3K3DesCode()
-                    println("message from native 2 ${message}")
+//                    val message = NativeLibraryExecutor().getStringValue()
+//                    val authCommand = NativeLibraryExecutor().getAuthenticate3K3DesCode()
+//                    println("message from native 2 ${message}")
+                    NativeLibraryExecutor2().startCThread(20, 1)
                 },
                 onLoadLibrary2 = {
                     NativeLibraryExecutor2().startThread()

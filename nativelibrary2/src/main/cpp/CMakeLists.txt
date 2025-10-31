@@ -6,6 +6,7 @@ add_library(
     nativelibrary2
     SHARED
     native-lib.cpp
+    thread_helper.c
 )
 
 find_library(
