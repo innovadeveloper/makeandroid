@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.sp
 import android.util.Log
 import com.innova.gstream.ui.theme.GStreamTheme
 import com.innova.native.NativeLibraryExecutor
+import com.innova.native.NativeLibraryExecutor2
 
 class MainActivity : ComponentActivity() {
     companion object {
@@ -64,6 +65,11 @@ class MainActivity : ComponentActivity() {
                     val message = NativeLibraryExecutor().getStringValue()
                     val authCommand = NativeLibraryExecutor().getAuthenticate3K3DesCode()
                     println("message from native 2 ${message}")
+                },
+                onLoadLibrary2 = {
+                    NativeLibraryExecutor2().startThread()
+//                    val foundValue =
+//                    println("foundValue -> $foundValue")
                 }
             )
             "rtsp" -> RTSPScreenWithNavigation(
@@ -79,7 +85,8 @@ class MainActivity : ComponentActivity() {
     fun HomeScreen(
         onNavigateToRTSP: () -> Unit,
         onNavigateToTest: () -> Unit,
-        onLoadLibrary: () -> Unit
+        onLoadLibrary: () -> Unit,
+        onLoadLibrary2: () -> Unit
     ) {
         Column(
             modifier = Modifier
@@ -114,11 +121,6 @@ class MainActivity : ComponentActivity() {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
-                        text = "📡",
-                        fontSize = 48.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
-                    Text(
                         text = "RTSP Player",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Medium,
@@ -134,18 +136,15 @@ class MainActivity : ComponentActivity() {
 
             // Botón Test Básico
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth()
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
                 onClick = onNavigateToTest
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = "🧪",
-                        fontSize = 48.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
                     Text(
                         text = "Test GStreamer",
                         fontSize = 18.sp,
@@ -163,18 +162,15 @@ class MainActivity : ComponentActivity() {
 
             // Botón Load Library
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth()
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
                 onClick = onLoadLibrary
             ) {
                 Column(
                     modifier = Modifier.padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text(
-                        text = "🧪",
-                        fontSize = 48.sp,
-                        modifier = Modifier.padding(bottom = 8.dp)
-                    )
                     Text(
                         text = "Test Library",
                         fontSize = 18.sp,
@@ -188,6 +184,31 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+            // Botón Load Library
+            Card(
+                modifier = Modifier.fillMaxWidth()
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp),
+                onClick = onLoadLibrary2
+            ) {
+                Column(
+                    modifier = Modifier.padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Test Library",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(bottom = 4.dp)
+                    )
+                    Text(
+                        text = "Cargar librería 2 .so",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
         }
     }
 

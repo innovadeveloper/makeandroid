@@ -22,3 +22,4 @@ dependencyResolutionManagement {
 rootProject.name = "GStream"
 include(":app")
 include(":nativelibrary")
+include(":nativelibrary2")
